@@ -1,0 +1,29 @@
+name: Minecraft online notify
+ 
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+ 
+concurrency:
+  group: mc-notify
+  cancel-in-progress: false
+ 
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Восстановить прошлое состояние
+        uses: actions/cache@v4
+        with:
+          path: state
+          key: mc-state-${{ github.run_id }}
+          restore-keys: mc-state-
+      - name: Проверить сервер
+        run: python3 check_server.py
+        env:
+          MC_SERVER: ${{ secrets.MC_SERVER }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
