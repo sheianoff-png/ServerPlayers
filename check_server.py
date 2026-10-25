@@ -1,7 +1,7 @@
 """Проверяет Minecraft-сервер и пишет в Telegram, если что-то изменилось.
 Секреты берутся из переменных окружения: MC_SERVER, TG_TOKEN, TG_CHAT_ID.
 В логи ничего лишнего не печатается (в публичном репозитории логи видны всем)."""
-import json, os, sys, urllib.parse, urllib.request
+import datetime, json, os, sys, urllib.parse, urllib.request
 
 STATE = "state/state.json"
 API = "https://api.mcstatus.io/v2/status/java/"
@@ -70,6 +70,32 @@ def send(token, chat_id, text, silent=False, url=None):
     ).read()
 
 
+def tg(token, method, **params):
+    body = urllib.parse.urlencode(params).encode()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=body)
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.load(r)["result"]
+
+
+def pc_alive(token, max_age=420):
+    """Бот на ПК раз в 2 минуты пишет в описание бота «🟢 ПК онлайн · дата время UTC».
+    Если отметка свежая, ПК работает и сам шлёт уведомления, а мы молчим.
+    Если отметка устарела, берём уведомления на себя и меняем описание."""
+    try:
+        text = tg(token, "getMyShortDescription").get("short_description", "")
+        if not text.startswith("🟢"):
+            return False
+        stamp = text.split("·")[-1].replace("UTC", "").strip()
+        t = datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=datetime.timezone.utc)
+        age = (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds()
+        if age < max_age:
+            return True
+        tg(token, "setMyShortDescription", short_description="☁️ ПК выключен, бот работает через GitHub")
+    except Exception:
+        pass
+    return False
+
+
 def main():
     try:
         server, token, chat = (os.environ[k] for k in ("MC_SERVER", "TG_TOKEN", "TG_CHAT_ID"))
@@ -97,6 +123,8 @@ def main():
     always = manual or os.environ.get("ALWAYS_REPORT") == "1"  # писать при каждой проверке
     if always and not any("Онлайн:" in m for m in msgs):
         msgs.append(status_text(cur))
+    if not manual and pc_alive(token):
+        msgs = []  # бот на ПК жив и сам пишет, мы только обновляем сохранённое состояние
     try:
         for m in msgs:
             send(token, chat, m, silent=(not changes and not manual), url=status_url)
